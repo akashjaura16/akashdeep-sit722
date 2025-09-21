@@ -1,0 +1,12 @@
+﻿# Ignore macOS system junk
+.DS_Store
+__MACOSX/
+
+# Ignore extracted/temporary folders
+tmp_extract/
+task10_2d/
+10.2D-resources.zip
+
+# Python caches
+__pycache__/
+*.pyc
