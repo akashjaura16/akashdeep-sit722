@@ -1,0 +1,34 @@
+﻿name: CD - Deploy to Staging
+on:
+  workflow_run:
+    workflows: ["CI - Build & Push to ACR"]
+    types: [completed]
+    branches: [testing]
+
+jobs:
+  deploy-staging:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - uses: azure/aks-set-context@v4
+        with:
+          resource-group: ${{ secrets.AZ_RESOURCE_GROUP }}
+          cluster-name: ${{ secrets.AKS_CLUSTER }}
+      - name: Namespace (idempotent)
+        run: kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
+      - name: Apply staging
+        run: kubectl apply -n staging -f k8s/staging/
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status -n staging deploy/product-service --timeout=180s
+          kubectl rollout status -n staging deploy/order-service --timeout=180s
+          kubectl rollout status -n staging deploy/customer-service --timeout=180s
+      - name: Smoke test
+        run: kubectl get pods -n staging -o wide
+      - name: Destroy staging
+        if: always()
+        run: kubectl delete -n staging -f k8s/staging/ || true

@@ -1,0 +1,38 @@
+﻿name: CI - Build & Push to ACR
+on:
+  push:
+    branches: [ testing ]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.ACR_NAME }}.azurecr.io
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./backend/product_service
+          push: true
+          tags: ${{ secrets.ACR_NAME }}.azurecr.io/product-service:latest
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./backend/order_service
+          push: true
+          tags: ${{ secrets.ACR_NAME }}.azurecr.io/order-service:latest
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./backend/customer_service
+          push: true
+          tags: ${{ secrets.ACR_NAME }}.azurecr.io/customer-service:latest

@@ -1,0 +1,26 @@
+﻿name: CD - Deploy to Production
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy-production:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - uses: azure/aks-set-context@v4
+        with:
+          resource-group: ${{ secrets.AZ_RESOURCE_GROUP }}
+          cluster-name: ${{ secrets.AKS_CLUSTER }}
+      - name: Namespace (idempotent)
+        run: kubectl create namespace production --dry-run=client -o yaml | kubectl apply -f -
+      - name: Apply production
+        run: kubectl apply -n production -f k8s/production/
+      - name: Verify rollout
+        run: |
+          kubectl rollout status -n production deploy/product-service --timeout=180s
+          kubectl rollout status -n production deploy/order-service --timeout=180s
+          kubectl rollout status -n production deploy/customer-service --timeout=180s
