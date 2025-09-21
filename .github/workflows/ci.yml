@@ -1,4 +1,4 @@
-﻿name: CI - Build & Push to ACR
+name: CI - Build & Push to ACR
 on:
   push:
     branches: [ testing ]
@@ -15,7 +15,7 @@ jobs:
 
       - uses: docker/login-action@v3
         with:
-          registry: ${{ secrets.ACR_NAME }}.azurecr.io
+          registry: ${{ secrets.ACR_LOGIN_SERVER }}
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
 
@@ -23,16 +23,16 @@ jobs:
         with:
           context: ./backend/product_service
           push: true
-          tags: ${{ secrets.ACR_NAME }}.azurecr.io/product-service:latest
+          tags: ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
 
       - uses: docker/build-push-action@v5
         with:
           context: ./backend/order_service
           push: true
-          tags: ${{ secrets.ACR_NAME }}.azurecr.io/order-service:latest
+          tags: ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
 
       - uses: docker/build-push-action@v5
         with:
           context: ./backend/customer_service
           push: true
-          tags: ${{ secrets.ACR_NAME }}.azurecr.io/customer-service:latest
+          tags: ${{ secrets.ACR_LOGIN_SERVER }}/customer-service:latest
