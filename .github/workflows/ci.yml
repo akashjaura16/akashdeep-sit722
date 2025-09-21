@@ -21,19 +21,20 @@ jobs:
 
       - uses: docker/build-push-action@v5
         with:
-          context: ./__MACOSX/task10_2d/backend/product_service
+          context: ./backend/product_service
           push: true
           tags: ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
 
       - uses: docker/build-push-action@v5
         with:
-          context: ./__MACOSX/task10_2d/backend/order_service
+          context: ./backend/order_service
           push: true
           tags: ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
 
       - uses: docker/build-push-action@v5
         with:
-          context: ./__MACOSX/task10_2d/backend/customer_service
+          context: ./backend/customer_service
           push: true
           tags: ${{ secrets.ACR_LOGIN_SERVER }}/customer-service:latest
+
 
