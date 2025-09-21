@@ -1,4 +1,4 @@
-name: CI - Build & Push to ACR
+﻿name: CI - Build & Push to ACR
 on:
   push:
     branches: [ testing ]
@@ -21,18 +21,19 @@ jobs:
 
       - uses: docker/build-push-action@v5
         with:
-          context: ./backend/product_service
+          context: ./__MACOSX/task10_2d/backend/product_service
           push: true
           tags: ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
 
       - uses: docker/build-push-action@v5
         with:
-          context: ./backend/order_service
+          context: ./__MACOSX/task10_2d/backend/order_service
           push: true
           tags: ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
 
       - uses: docker/build-push-action@v5
         with:
-          context: ./backend/customer_service
+          context: ./__MACOSX/task10_2d/backend/customer_service
           push: true
           tags: ${{ secrets.ACR_LOGIN_SERVER }}/customer-service:latest
+
