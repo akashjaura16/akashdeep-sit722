@@ -15,30 +15,33 @@ jobs:
     permissions:
       id-token: write
       contents: read
+
     steps:
       - uses: actions/checkout@v4
 
-      # (Optional) simple backend tests
+      # ---------- Run backend tests (optional) ----------
       - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-      - name: Install backend deps
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies
         run: |
           pip install -U pip
           for svc in order_service product_service customer_service; do
-            [ -f services/$svc/requirements.txt ] && pip install -r services/$svc/requirements.txt || true
+            if [ -f services/$svc/requirements.txt ]; then
+              pip install -r services/$svc/requirements.txt
+            fi
           done
+
       - name: Run backend tests
         run: |
-          pytest -q || true
+          for svc in order_service product_service customer_service; do
+            if [ -d services/$svc ]; then
+              pytest -q services/$svc || true
+            fi
+          done
 
-      # (Optional) frontend tests
-      - uses: actions/setup-node@v4
-        with: { node-version: "20" }
-      - name: Frontend tests
-        working-directory: services/frontend
-        run: |
-          [ -f package.json ] && (npm ci || npm install) && npm test --if-present || true
-
+      # ---------- Login to Azure + ACR ----------
       - name: Azure login
         uses: azure/login@v2
         with:
@@ -51,6 +54,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # ---------- Build & Push Services ----------
       - name: Build & push order-service
         uses: docker/build-push-action@v6
         with:
@@ -77,13 +81,3 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/customer-service:${{ env.SHA }}
             ${{ env.REGISTRY }}/customer-service:testing
-
-      - name: Build & push frontend (if exists)
-        if: ${{ hashFiles('services/frontend/Dockerfile') != '' }}
-        uses: docker/build-push-action@v6
-        with:
-          context: ./services/frontend
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/frontend:${{ env.SHA }}
-            ${{ env.REGISTRY }}/frontend:testing
