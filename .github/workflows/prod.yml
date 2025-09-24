@@ -1,4 +1,4 @@
-﻿name: CD - Production
+name: CD - Production
 
 on:
   push:
@@ -11,18 +11,16 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
     steps:
       - uses: actions/checkout@v4
 
-      - name: Azure login
+      - name: Azure login (client secret)
         uses: azure/login@v2
         with:
-          client-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          tenant-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
-          subscription-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: ACR login
+        run: az acr login --name ${{ secrets.ACR_NAME }}
 
       - name: Set AKS context
         uses: azure/aks-set-context@v4
@@ -30,7 +28,7 @@ jobs:
           resource-group: ${{ secrets.AKS_RESOURCE_GROUP }}
           cluster-name: ${{ secrets.AKS_CLUSTER_NAME }}
 
-      - name: Prepare manifests (use your k8s/production/deployments/*.yaml)
+      - name: Prepare manifests (use prod manifests)
         run: |
           mkdir -p k8s/_render
           cp -r k8s/production/deployments/* k8s/_render/
@@ -41,8 +39,9 @@ jobs:
           sed -i "s#image:\s*.*order-service:.*#image: ${REG}/order-service:${SHA}#g" k8s/_render/*.yaml
           sed -i "s#image:\s*.*product-service:.*#image: ${REG}/product-service:${SHA}#g" k8s/_render/*.yaml
           sed -i "s#image:\s*.*customer-service:.*#image: ${REG}/customer-service:${SHA}#g" k8s/_render/*.yaml
-          # And frontend if applicable:
-          # sed -i "s#image:\s*.*frontend:.*#image: ${REG}/frontend:${SHA}#g" k8s/_render/*.yaml
+
+      - name: Ensure prod namespace exists
+        run: kubectl get ns prod || kubectl create ns prod
 
       - name: Apply to prod
         run: kubectl apply -n prod -f k8s/_render
@@ -50,5 +49,6 @@ jobs:
       - name: Wait for rollouts
         run: |
           for d in order-service product-service customer-service; do
+            echo "Waiting for $d..."
             kubectl rollout status deploy/$d -n prod --timeout=300s
           done
