@@ -2,20 +2,24 @@ name: CD - Ephemeral Staging
 
 on:
   workflow_run:
-    workflows: ["CI - Build & Push to ACR"]
+    workflows: ["CI - Build & Push to ACR"]   # must match your CI workflow name exactly
     types: [ "completed" ]
+  workflow_dispatch:                           # allows manual "Run workflow" from Actions tab
 
 env:
   REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}
 
 jobs:
   deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Only run if the upstream CI finished successfully (ignored for manual runs)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Azure login
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Azure login (client secret)
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
@@ -26,37 +30,48 @@ jobs:
           resource-group: ${{ secrets.AKS_RESOURCE_GROUP }}
           cluster-name: ${{ secrets.AKS_CLUSTER_NAME }}
 
-      - name: Derive vars
+      - name: Derive variables
         id: v
+        shell: bash
         run: |
+          # For workflow_run we need the head_sha from the CI run.
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "SHA=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
+          else
+            echo "SHA=${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
           echo "NS=stg-${{ github.run_id }}" >> $GITHUB_OUTPUT
-          echo "SHA=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
+          echo "Derived -> NS=$(cat $GITHUB_OUTPUT | sed -n 's/^NS=//p') ; SHA=$(cat $GITHUB_OUTPUT | sed -n 's/^SHA=//p')"
 
       - name: Create ephemeral namespace
         run: kubectl create namespace ${{ steps.v.outputs.NS }}
 
-      - name: Prepare manifests
+      - name: Prepare manifests (patch images to SHA)
+        shell: bash
         run: |
           mkdir -p k8s/_render
           cp -r k8s/staging/deployments/* k8s/_render/
 
-          SHA=${{ steps.v.outputs.SHA }}
-          REG=${{ env.REGISTRY }}
+          SHA='${{ steps.v.outputs.SHA }}'
+          REG='${{ env.REGISTRY }}'
 
+          # Your ACR repos are hyphenated (order-service, product-service, customer-service)
           sed -i "s#image:.*order-service:.*#image: ${REG}/order-service:${SHA}#g" k8s/_render/*.yaml
           sed -i "s#image:.*product-service:.*#image: ${REG}/product-service:${SHA}#g" k8s/_render/*.yaml
           sed -i "s#image:.*customer-service:.*#image: ${REG}/customer-service:${SHA}#g" k8s/_render/*.yaml
 
-      - name: Apply to staging
+      - name: Apply to ephemeral staging
         run: kubectl apply -n ${{ steps.v.outputs.NS }} -f k8s/_render
 
       - name: Wait for rollouts
+        shell: bash
         run: |
-          NS=${{ steps.v.outputs.NS }}
+          NS='${{ steps.v.outputs.NS }}'
           for d in order-service product-service customer-service; do
-            kubectl rollout status deploy/$d -n $NS --timeout=300s
+            echo "Waiting for $d in $NS ..."
+            kubectl rollout status deploy/$d -n "$NS" --timeout=300s
           done
 
-      - name: Teardown staging
+      - name: Teardown staging (always)
         if: always()
         run: kubectl delete namespace ${{ steps.v.outputs.NS }} --wait=true
