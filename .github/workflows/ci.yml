@@ -12,49 +12,19 @@ env:
 jobs:
   build-push:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-
     steps:
       - uses: actions/checkout@v4
 
-      # ---------- Run backend tests (optional) ----------
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install backend dependencies
-        run: |
-          pip install -U pip
-          for svc in order_service product_service customer_service; do
-            if [ -f services/$svc/requirements.txt ]; then
-              pip install -r services/$svc/requirements.txt
-            fi
-          done
-
-      - name: Run backend tests
-        run: |
-          for svc in order_service product_service customer_service; do
-            if [ -d services/$svc ]; then
-              pytest -q services/$svc || true
-            fi
-          done
-
-      # ---------- Login to Azure + ACR ----------
       - name: Azure login
         uses: azure/login@v2
         with:
-          client-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          tenant-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
-          subscription-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: ACR login
         run: az acr login --name ${{ secrets.ACR_NAME }}
 
       - uses: docker/setup-buildx-action@v3
 
-      # ---------- Build & Push Services ----------
       - name: Build & push order-service
         uses: docker/build-push-action@v6
         with:

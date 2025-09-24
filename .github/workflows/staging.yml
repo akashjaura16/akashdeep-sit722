@@ -12,18 +12,13 @@ jobs:
   deploy:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
     steps:
       - uses: actions/checkout@v4
 
       - name: Azure login
         uses: azure/login@v2
         with:
-          client-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          tenant-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
-          subscription-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Set AKS context
         uses: azure/aks-set-context@v4
@@ -40,7 +35,7 @@ jobs:
       - name: Create ephemeral namespace
         run: kubectl create namespace ${{ steps.v.outputs.NS }}
 
-      - name: Prepare manifests (use your k8s/staging/deployments/*.yaml)
+      - name: Prepare manifests
         run: |
           mkdir -p k8s/_render
           cp -r k8s/staging/deployments/* k8s/_render/
@@ -48,14 +43,11 @@ jobs:
           SHA=${{ steps.v.outputs.SHA }}
           REG=${{ env.REGISTRY }}
 
-          # Patch images to the exact CI commit SHA (repos are hyphenated)
-          sed -i "s#image:\s*.*order-service:.*#image: ${REG}/order-service:${SHA}#g" k8s/_render/*.yaml
-          sed -i "s#image:\s*.*product-service:.*#image: ${REG}/product-service:${SHA}#g" k8s/_render/*.yaml
-          sed -i "s#image:\s*.*customer-service:.*#image: ${REG}/customer-service:${SHA}#g" k8s/_render/*.yaml
-          # If you deploy frontend from staging, add:
-          # sed -i "s#image:\s*.*frontend:.*#image: ${REG}/frontend:${SHA}#g" k8s/_render/*.yaml
+          sed -i "s#image:.*order-service:.*#image: ${REG}/order-service:${SHA}#g" k8s/_render/*.yaml
+          sed -i "s#image:.*product-service:.*#image: ${REG}/product-service:${SHA}#g" k8s/_render/*.yaml
+          sed -i "s#image:.*customer-service:.*#image: ${REG}/customer-service:${SHA}#g" k8s/_render/*.yaml
 
-      - name: Apply to ephemeral staging
+      - name: Apply to staging
         run: kubectl apply -n ${{ steps.v.outputs.NS }} -f k8s/_render
 
       - name: Wait for rollouts
@@ -65,13 +57,6 @@ jobs:
             kubectl rollout status deploy/$d -n $NS --timeout=300s
           done
 
-      # Optional smoke test if you have a frontend LoadBalancer service
-      # - name: Smoke test
-      #   run: |
-      #     NS=${{ steps.v.outputs.NS }}
-      #     ip=$(kubectl get svc frontend-svc -n $NS -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-      #     if [ -n "$ip" ]; then curl -I "http://$ip" ; else echo "No LB IP yet or no frontend"; fi
-
-      - name: Teardown staging (always)
+      - name: Teardown staging
         if: always()
         run: kubectl delete namespace ${{ steps.v.outputs.NS }} --wait=true
