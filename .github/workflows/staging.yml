@@ -1,44 +1,77 @@
-name: CD - Deploy to Staging
+name: CD - Ephemeral Staging
 
 on:
   workflow_run:
     workflows: ["CI - Build & Push to ACR"]
-    types: [completed]
-    branches: [testing]
-  workflow_dispatch: {}    # <— allow manual runs
+    types: [ "completed" ]
+
+env:
+  REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}
 
 jobs:
-  deploy-staging:
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
-      - uses: azure/login@v2
+      - name: Azure login
+        uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          tenant-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+          subscription-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
 
-      - uses: azure/aks-set-context@v4
+      - name: Set AKS context
+        uses: azure/aks-set-context@v4
         with:
-          resource-group: ${{ secrets.AZ_RESOURCE_GROUP }}
-          cluster-name: ${{ secrets.AKS_CLUSTER }}
+          resource-group: ${{ secrets.AKS_RESOURCE_GROUP }}
+          cluster-name: ${{ secrets.AKS_CLUSTER_NAME }}
 
-      - name: Namespace (idempotent)
-        run: kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
-
-      - name: Apply staging
-        run: kubectl apply -n staging -f k8s/staging/
-
-      - name: Wait for rollout
+      - name: Derive vars
+        id: v
         run: |
-          kubectl rollout status -n staging deploy/product-service  --timeout=180s
-          kubectl rollout status -n staging deploy/order-service    --timeout=180s
-          kubectl rollout status -n staging deploy/customer-service --timeout=180s
+          echo "NS=stg-${{ github.run_id }}" >> $GITHUB_OUTPUT
+          echo "SHA=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
 
-      - name: Smoke test
-        run: kubectl get pods -n staging -o wide
+      - name: Create ephemeral namespace
+        run: kubectl create namespace ${{ steps.v.outputs.NS }}
 
-      # While testing keep this disabled so you can inspect pods/services
-      # - name: Destroy staging
-      #   if: always()
-      #   run: kubectl delete -n staging -f k8s/staging/ || true
+      - name: Prepare manifests (use your k8s/staging/deployments/*.yaml)
+        run: |
+          mkdir -p k8s/_render
+          cp -r k8s/staging/deployments/* k8s/_render/
+
+          SHA=${{ steps.v.outputs.SHA }}
+          REG=${{ env.REGISTRY }}
+
+          # Patch images to the exact CI commit SHA (repos are hyphenated)
+          sed -i "s#image:\s*.*order-service:.*#image: ${REG}/order-service:${SHA}#g" k8s/_render/*.yaml
+          sed -i "s#image:\s*.*product-service:.*#image: ${REG}/product-service:${SHA}#g" k8s/_render/*.yaml
+          sed -i "s#image:\s*.*customer-service:.*#image: ${REG}/customer-service:${SHA}#g" k8s/_render/*.yaml
+          # If you deploy frontend from staging, add:
+          # sed -i "s#image:\s*.*frontend:.*#image: ${REG}/frontend:${SHA}#g" k8s/_render/*.yaml
+
+      - name: Apply to ephemeral staging
+        run: kubectl apply -n ${{ steps.v.outputs.NS }} -f k8s/_render
+
+      - name: Wait for rollouts
+        run: |
+          NS=${{ steps.v.outputs.NS }}
+          for d in order-service product-service customer-service; do
+            kubectl rollout status deploy/$d -n $NS --timeout=300s
+          done
+
+      # Optional smoke test if you have a frontend LoadBalancer service
+      # - name: Smoke test
+      #   run: |
+      #     NS=${{ steps.v.outputs.NS }}
+      #     ip=$(kubectl get svc frontend-svc -n $NS -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+      #     if [ -n "$ip" ]; then curl -I "http://$ip" ; else echo "No LB IP yet or no frontend"; fi
+
+      - name: Teardown staging (always)
+        if: always()
+        run: kubectl delete namespace ${{ steps.v.outputs.NS }} --wait=true

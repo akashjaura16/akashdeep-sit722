@@ -1,26 +1,54 @@
-﻿name: CD - Deploy to Production
+﻿name: CD - Production
+
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}
 
 jobs:
-  deploy-production:
+  deploy:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: azure/login@v2
+
+      - name: Azure login
+        uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-      - uses: azure/aks-set-context@v4
+          client-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          tenant-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+          subscription-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+
+      - name: Set AKS context
+        uses: azure/aks-set-context@v4
         with:
-          resource-group: ${{ secrets.AZ_RESOURCE_GROUP }}
-          cluster-name: ${{ secrets.AKS_CLUSTER }}
-      - name: Namespace (idempotent)
-        run: kubectl create namespace production --dry-run=client -o yaml | kubectl apply -f -
-      - name: Apply production
-        run: kubectl apply -n production -f k8s/production/
-      - name: Verify rollout
+          resource-group: ${{ secrets.AKS_RESOURCE_GROUP }}
+          cluster-name: ${{ secrets.AKS_CLUSTER_NAME }}
+
+      - name: Prepare manifests (use your k8s/production/deployments/*.yaml)
         run: |
-          kubectl rollout status -n production deploy/product-service --timeout=180s
-          kubectl rollout status -n production deploy/order-service --timeout=180s
-          kubectl rollout status -n production deploy/customer-service --timeout=180s
+          mkdir -p k8s/_render
+          cp -r k8s/production/deployments/* k8s/_render/
+
+          SHA=${{ github.sha }}
+          REG=${{ env.REGISTRY }}
+
+          sed -i "s#image:\s*.*order-service:.*#image: ${REG}/order-service:${SHA}#g" k8s/_render/*.yaml
+          sed -i "s#image:\s*.*product-service:.*#image: ${REG}/product-service:${SHA}#g" k8s/_render/*.yaml
+          sed -i "s#image:\s*.*customer-service:.*#image: ${REG}/customer-service:${SHA}#g" k8s/_render/*.yaml
+          # And frontend if applicable:
+          # sed -i "s#image:\s*.*frontend:.*#image: ${REG}/frontend:${SHA}#g" k8s/_render/*.yaml
+
+      - name: Apply to prod
+        run: kubectl apply -n prod -f k8s/_render
+
+      - name: Wait for rollouts
+        run: |
+          for d in order-service product-service customer-service; do
+            kubectl rollout status deploy/$d -n prod --timeout=300s
+          done

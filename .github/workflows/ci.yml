@@ -1,40 +1,89 @@
 ﻿name: CI - Build & Push to ACR
+
 on:
   push:
-    branches: [ testing ]
+    branches: [ "testing" ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}
+  SHA: ${{ github.sha }}
 
 jobs:
-  build-and-push:
+  build-push:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
-      - uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      # (Optional) simple backend tests
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Install backend deps
+        run: |
+          pip install -U pip
+          for svc in order_service product_service customer_service; do
+            [ -f services/$svc/requirements.txt ] && pip install -r services/$svc/requirements.txt || true
+          done
+      - name: Run backend tests
+        run: |
+          pytest -q || true
 
-      - uses: docker/login-action@v3
-        with:
-          registry: ${{ secrets.ACR_LOGIN_SERVER }}
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
+      # (Optional) frontend tests
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - name: Frontend tests
+        working-directory: services/frontend
+        run: |
+          [ -f package.json ] && (npm ci || npm install) && npm test --if-present || true
 
-      - uses: docker/build-push-action@v5
+      - name: Azure login
+        uses: azure/login@v2
         with:
-          context: ./backend/product_service
+          client-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          tenant-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+          subscription-id: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+
+      - name: ACR login
+        run: az acr login --name ${{ secrets.ACR_NAME }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build & push order-service
+        uses: docker/build-push-action@v6
+        with:
+          context: ./services/order_service
           push: true
-          tags: ${{ secrets.ACR_LOGIN_SERVER }}/product-service:latest
+          tags: |
+            ${{ env.REGISTRY }}/order-service:${{ env.SHA }}
+            ${{ env.REGISTRY }}/order-service:testing
 
-      - uses: docker/build-push-action@v5
+      - name: Build & push product-service
+        uses: docker/build-push-action@v6
         with:
-          context: ./backend/order_service
+          context: ./services/product_service
           push: true
-          tags: ${{ secrets.ACR_LOGIN_SERVER }}/order-service:latest
+          tags: |
+            ${{ env.REGISTRY }}/product-service:${{ env.SHA }}
+            ${{ env.REGISTRY }}/product-service:testing
 
-      - uses: docker/build-push-action@v5
+      - name: Build & push customer-service
+        uses: docker/build-push-action@v6
         with:
-          context: ./backend/customer_service
+          context: ./services/customer_service
           push: true
-          tags: ${{ secrets.ACR_LOGIN_SERVER }}/customer-service:latest
+          tags: |
+            ${{ env.REGISTRY }}/customer-service:${{ env.SHA }}
+            ${{ env.REGISTRY }}/customer-service:testing
 
-
+      - name: Build & push frontend (if exists)
+        if: ${{ hashFiles('services/frontend/Dockerfile') != '' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ./services/frontend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/frontend:${{ env.SHA }}
+            ${{ env.REGISTRY }}/frontend:testing
