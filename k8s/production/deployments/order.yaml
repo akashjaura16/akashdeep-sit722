@@ -10,7 +10,7 @@ spec:
     spec:
       containers:
         - name: order-service
-          image: sit722acrndax8i.azurecr.io/order-service:latest
+          image: sit722acrndax8i.azurecr.io/order-service:v3
           ports: [{ containerPort: 8000 }]
 ---
 apiVersion: v1

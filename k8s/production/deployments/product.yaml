@@ -10,7 +10,7 @@ spec:
     spec:
       containers:
         - name: product-service
-          image: sit722acrndax8i.azurecr.io/product-service:latest
+          image: sit722acrndax8i.azurecr.io/product-service:v3
           ports: [{ containerPort: 8000 }]
 ---
 apiVersion: v1

@@ -2,7 +2,7 @@ from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, String, T
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from .db import Base
+from .app.db import Base
 
 
 class Order(Base):
