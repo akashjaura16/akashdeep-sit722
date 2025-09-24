@@ -1,17 +1,10 @@
-﻿# Ignore Python cache
-__pycache__/
+﻿__pycache__/
 *.pyc
 *.pyo
 *.pyd
-
-# Ignore venv
-venv/
-.env/
-
-# Ignore OS junk
-.DS_Store
-__MACOSX/
-
-# Ignore temporary build files
 *.log
-*.zip
+.env
+.git
+.gitignore
+.vscode
+.DS_Store

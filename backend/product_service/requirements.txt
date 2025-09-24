@@ -1,8 +1,0 @@
-﻿fastapi
-uvicorn
-sqlalchemy
-psycopg2-binary
-aio-pika
-pydantic
-httpx
-azure-storage-blob

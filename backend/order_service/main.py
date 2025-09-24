@@ -14,8 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, joinedload
 
-from app.db import Base, SessionLocal, engine, get_db
-
+from .db import Base, SessionLocal, engine, get_db
 from .models import Order, OrderItem
 from .schemas import (
     OrderCreate,
